@@ -18,6 +18,7 @@ except ImportError:
 
 # --- إعدادات الملفات ---
 ACCOUNTS_FILE = "accounts.json"
+PROXIES_FILE = "proxies.txt"
 PROCESSED_USERS_FILE = "processed_users.txt"
 QUEUE_FILE = "queue.json"
 SETTINGS_FILE = "settings.json"
@@ -25,7 +26,8 @@ SETTINGS_FILE = "settings.json"
 # --- متغيرات عالمية ---
 transfer_in_progress = False
 user_states = {}
-bot_client = TelegramClient('bot_session', None, None)
+# --- هذا هو التعديل الرئيسي لحل المشكلة ---
+bot_client = TelegramClient('bot_session', ADMIN_API_ID, ADMIN_API_HASH)
 
 # --- دوال المساعدة ---
 def load_json(filename, default_data=None):
@@ -55,8 +57,33 @@ def load_processed_users():
 def save_processed_user(user_id):
     with open(PROCESSED_USERS_FILE, "a") as f: f.write(f"{user_id}\n")
 
+def get_random_proxy():
+    try:
+        with open(PROXIES_FILE, "r") as f:
+            proxies = [line.strip() for line in f if line.strip()]
+        if not proxies: return None
+        
+        random_proxy_line = random.choice(proxies)
+        parts = random_proxy_line.split(':')
+        
+        scheme = parts[0]
+        if '@' in parts[1]:
+            user_pass, host = parts[1].split('@', 1)
+            user, password = user_pass.split(':', 1)
+            port = int(parts[2])
+        else:
+            host = parts[1]
+            port = int(parts[2])
+            user = parts[3] if len(parts) > 3 and parts[3] else None
+            password = parts[4] if len(parts) > 4 and parts[4] else None
+        
+        return {"scheme": scheme, "hostname": host, "port": port, "username": user, "password": password}
+    except (FileNotFoundError, IndexError, ValueError):
+        return None
+
 async def check_account_status(account_info):
-    temp_client = TelegramClient(StringSession(account_info['session_string']), account_info['api_id'], account_info['api_hash'])
+    proxy_data = get_random_proxy()
+    temp_client = TelegramClient(StringSession(account_info['session_string']), account_info['api_id'], account_info['api_hash'], proxy=proxy_data)
     try:
         await temp_client.connect()
         if await temp_client.is_user_authorized(): return "✅ فعال"
@@ -170,7 +197,8 @@ async def message_handler(event):
             await event.reply("✅ تم. الآن أرسل **رقم الهاتف** مع رمز الدولة.")
         elif current_state == "awaiting_phone":
             state_data['phone'] = event.text
-            temp_client = TelegramClient(StringSession(), state_data['api_id'], state_data['api_hash'])
+            proxy_data = get_random_proxy()
+            temp_client = TelegramClient(StringSession(), state_data['api_id'], state_data['api_hash'], proxy=proxy_data)
             try:
                 await temp_client.connect()
                 sent_code = await temp_client.send_code_request(state_data['phone'])
@@ -193,7 +221,7 @@ async def message_handler(event):
             except Exception as e:
                 await event.reply(f"❌ خطأ: `{e}`."); del user_states[user_id]
             finally:
-                await event.delete(); await temp_client.disconnect()
+                if temp_client.is_connected(): await temp_client.disconnect(); await event.delete()
         elif current_state == "awaiting_password":
             password = event.text; temp_client = state_data['client']
             try:
@@ -204,7 +232,7 @@ async def message_handler(event):
                 del user_states[user_id]
             except Exception as e: await event.reply(f"❌ خطأ: `{e}`.")
             finally:
-                await event.delete(); await temp_client.disconnect()
+                if temp_client.is_connected(): await temp_client.disconnect(); await event.delete()
         if user_id in user_states: user_states[user_id] = state_data
     elif state_data == "awaiting_from_group":
         user_states[user_id] = {"state": "awaiting_to_group", "from_group": event.text}
@@ -231,6 +259,8 @@ async def account_checker_worker():
         print("🕵️ [Checker] Starting accounts validity check...")
         accounts = load_accounts()
         valid_accounts = []
+        if not accounts:
+            print("🕵️ [Checker] No accounts to check."); continue
         for account in accounts:
             is_valid = False
             try:
@@ -244,8 +274,11 @@ async def account_checker_worker():
                 try:
                     await bot_client.send_message(account['contributor_id'], INVALID_ACCOUNT_NOTICE)
                 except Exception: pass
-        save_json(ACCOUNTS_FILE, valid_accounts)
-        print("🕵️ [Checker] Check finished.")
+        if len(valid_accounts) != len(accounts):
+            save_json(ACCOUNTS_FILE, valid_accounts)
+            print(f"💾 [Checker] Database updated. Valid accounts: {len(valid_accounts)}")
+        else:
+            print("🕵️ [Checker] All accounts are valid.")
 
 async def background_worker():
     global transfer_in_progress
@@ -264,7 +297,8 @@ async def background_worker():
         random.shuffle(accounts)
         for acc_data in accounts:
             if total_added >= MAX_ADDS_PER_TASK: break
-            client = TelegramClient(StringSession(acc_data['session_string']), acc_data['api_id'], acc_data['api_hash'])
+            proxy = get_random_proxy()
+            client = TelegramClient(StringSession(acc_data['session_string']), acc_data['api_id'], acc_data['api_hash'], proxy=proxy)
             try:
                 await client.connect()
                 if not await client.is_user_authorized(): continue
@@ -297,7 +331,8 @@ async def run_terminal_mode():
     total_added = 0
     for acc_data in accounts:
         if total_added >= max_adds: break
-        client = TelegramClient(StringSession(acc_data['session_string']), acc_data['api_id'], acc_data['api_hash'])
+        proxy = get_random_proxy()
+        client = TelegramClient(StringSession(acc_data['session_string']), acc_data['api_id'], acc_data['api_hash'], proxy=proxy)
         try:
             await client.connect()
             if not await client.is_user_authorized(): continue
