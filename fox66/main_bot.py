@@ -26,7 +26,6 @@ SETTINGS_FILE = "settings.json"
 # --- متغيرات عالمية ---
 transfer_in_progress = False
 user_states = {}
-# --- هذا هو التعديل الرئيسي لحل المشكلة ---
 bot_client = TelegramClient('bot_session', ADMIN_API_ID, ADMIN_API_HASH)
 
 # --- دوال المساعدة ---
@@ -157,16 +156,24 @@ async def new_transfer_callback(event):
     settings = load_json(SETTINGS_FILE, default_data={"is_active": True})
     if not settings.get("is_active", True) and user_id != ADMIN_USER_ID:
         await event.answer(BOT_MAINTENANCE_MESSAGE, alert=True); return
+    
+    # --- هذا هو الجزء الذي تم تصحيحه ---
     try:
-        await bot_client(functions.channels.GetParticipantRequest(channel=TARGET_CHANNEL, participant=user_id))
-    except (errors.UserNotParticipantError, errors.ChannelPrivateError):
-        await event.answer(FORCE_SUB_MESSAGE, alert=True); return
+        user_entity = await bot_client.get_entity(user_id)
+        await bot_client(functions.channels.GetParticipantRequest(channel=TARGET_CHANNEL, participant=user_entity))
+    except (errors.UserNotParticipantError, errors.ChannelPrivateError, ValueError):
+        await event.answer(FORCE_SUB_MESSAGE, alert=True)
+        return
+    # ------------------------------------
+
     accounts = load_accounts()
     if not any(acc.get('contributor_id') == user_id for acc in accounts) and user_id != ADMIN_USER_ID:
         await event.answer(REQUIRE_ACCOUNT_MESSAGE, alert=True); return
+        
     global transfer_in_progress
     if transfer_in_progress:
         await event.answer("⏳ يوجد عملية نقل قيد التنفيذ حالياً.", alert=True); return
+        
     user_states[user_id] = "awaiting_from_group"
     await event.edit("ممتاز! أنت مساهم.\n\n**الخطوة 1:** أرسل يوزر المجموعة **المصدر**.")
 
