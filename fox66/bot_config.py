@@ -6,8 +6,8 @@ ADMIN_USER_ID = 8191849197  # الـ ID الخاص بحسابك الأدمن
 # --- بيانات المطور الإلزامية لـ Telethon (هذا هو الجزء الجديد والمهم) ---
 # هذه البيانات من حسابك الشخصي (المطور)
 # يجب أن تحصل عليها من my.telegram.org
-ADMIN_API_ID = 12345678  # ❗️❗️ استبدل هذا بالـ API ID الخاص بك
-ADMIN_API_HASH = "0123456789abcdef0123456789abcdef"  # ❗️❗️ استبدل هذا بالـ API HASH الخاص بك
+ADMIN_API_ID = 24722068  # ❗️❗️ استبدل هذا بالـ API ID الخاص بك
+ADMIN_API_HASH = "72feca3ed88891eeff3852e20817cdca"  # ❗️❗️ استبدل هذا بالـ API HASH الخاص بك
 
 TARGET_CHANNEL = "@DoctRalolaaaDoctRalolaaa2007" # يوزر قناتك للاشتراك الإجباري
 
