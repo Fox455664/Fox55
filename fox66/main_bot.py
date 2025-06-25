@@ -1,4 +1,4 @@
-# 파일명: main_bot.py
+# 파일명: main_bot.py (النسخة النهائية مع مرشد الحصول على API)
 
 import asyncio
 import json
@@ -61,21 +61,17 @@ def get_random_proxy():
         with open(PROXIES_FILE, "r") as f:
             proxies = [line.strip() for line in f if line.strip()]
         if not proxies: return None
-        
         random_proxy_line = random.choice(proxies)
         parts = random_proxy_line.split(':')
-        
         scheme = parts[0]
         if '@' in parts[1]:
             user_pass, host = parts[1].split('@', 1)
             user, password = user_pass.split(':', 1)
             port = int(parts[2])
         else:
-            host = parts[1]
-            port = int(parts[2])
+            host = parts[1]; port = int(parts[2])
             user = parts[3] if len(parts) > 3 and parts[3] else None
             password = parts[4] if len(parts) > 4 and parts[4] else None
-        
         return {"scheme": scheme, "hostname": host, "port": port, "username": user, "password": password}
     except (FileNotFoundError, IndexError, ValueError):
         return None
@@ -107,12 +103,9 @@ async def transfer_engine(client, from_group, to_group, max_adds, processed_user
                 if terminal_mode: print(f"➕ [{added_count}/{max_adds}] تمت إضافة: {user.first_name}")
                 elif status_message and added_count % 5 == 0: await status_message.edit(f"⏳ جاري النقل... تمت إضافة **{added_count}** عضو.")
                 await asyncio.sleep(random.uniform(45, 100))
-            except errors.FloodWaitError as e:
-                await asyncio.sleep(e.seconds + 20)
-            except (errors.UserPrivacyRestrictedError, errors.UserNotMutualContactError, errors.UserChannelsTooMuchError):
-                processed_users.add(user.id); save_processed_user(user.id)
-            except Exception:
-                processed_users.add(user.id); save_processed_user(user.id)
+            except errors.FloodWaitError as e: await asyncio.sleep(e.seconds + 20)
+            except (errors.UserPrivacyRestrictedError, errors.UserNotMutualContactError, errors.UserChannelsTooMuchError): processed_users.add(user.id); save_processed_user(user.id)
+            except Exception: processed_users.add(user.id); save_processed_user(user.id)
     except Exception as e:
         error_msg = f"🚨 خطأ في المحرك: {e}"
         if terminal_mode: print(error_msg)
@@ -131,49 +124,41 @@ async def bot_on_handler(event):
 @bot_client.on(events.NewMessage(pattern='/start'))
 async def start_handler(event):
     await event.reply(WELCOME_MESSAGE, buttons=[
+        [Button.inline("❓ كيفية الحصول على API", "get_api_guide")],
         [Button.inline("➕ إضافة حساب جديد", "add_account"), Button.inline("👤 حساباتي", "my_accounts")],
         [Button.inline("🔄 بدء عملية نقل", "new_transfer")]
     ])
+
+@bot_client.on(events.CallbackQuery(data='get_api_guide'))
+async def get_api_guide_handler(event):
+    await event.edit(API_GUIDE_MESSAGE, buttons=[Button.url("🌐 افتح موقع تيليجرام", "https://my.telegram.org/"), Button.inline("✅ فهمت، لنضف الحساب", "add_account")], link_preview=False)
 
 @bot_client.on(events.CallbackQuery(data='my_accounts'))
 async def my_accounts_handler(event):
     user_id = event.sender_id
     accounts = load_accounts()
     user_accounts = [acc for acc in accounts if acc.get('contributor_id') == user_id]
-    if not user_accounts:
-        await event.answer(NO_ACCOUNTS_MESSAGE, alert=True); return
+    if not user_accounts: await event.answer(NO_ACCOUNTS_MESSAGE, alert=True); return
     status_msg = await event.edit(CHECKING_ACCOUNTS_MESSAGE)
     tasks = [check_account_status(acc) for acc in user_accounts]
     results = await asyncio.gather(*tasks)
     response_text = MY_ACCOUNTS_HEADER
-    for i, account in enumerate(user_accounts):
-        response_text += f"**- الحساب {i+1}** (ID: `{account['api_id']}`) - **الحالة:** {results[i]}\n"
+    for i, account in enumerate(user_accounts): response_text += f"**- الحساب {i+1}** (ID: `{account['api_id']}`) - **الحالة:** {results[i]}\n"
     await status_msg.edit(response_text, buttons=[Button.inline("➕ إضافة حساب آخر", "add_account")])
 
 @bot_client.on(events.CallbackQuery(data='new_transfer'))
 async def new_transfer_callback(event):
     user_id = event.sender_id
     settings = load_json(SETTINGS_FILE, default_data={"is_active": True})
-    if not settings.get("is_active", True) and user_id != ADMIN_USER_ID:
-        await event.answer(BOT_MAINTENANCE_MESSAGE, alert=True); return
-    
-    # --- هذا هو الجزء الذي تم تصحيحه ---
+    if not settings.get("is_active", True) and user_id != ADMIN_USER_ID: await event.answer(BOT_MAINTENANCE_MESSAGE, alert=True); return
     try:
         user_entity = await bot_client.get_entity(user_id)
         await bot_client(functions.channels.GetParticipantRequest(channel=TARGET_CHANNEL, participant=user_entity))
-    except (errors.UserNotParticipantError, errors.ChannelPrivateError, ValueError):
-        await event.answer(FORCE_SUB_MESSAGE, alert=True)
-        return
-    # ------------------------------------
-
+    except (errors.UserNotParticipantError, errors.ChannelPrivateError, ValueError): await event.answer(FORCE_SUB_MESSAGE, alert=True); return
     accounts = load_accounts()
-    if not any(acc.get('contributor_id') == user_id for acc in accounts) and user_id != ADMIN_USER_ID:
-        await event.answer(REQUIRE_ACCOUNT_MESSAGE, alert=True); return
-        
+    if not any(acc.get('contributor_id') == user_id for acc in accounts) and user_id != ADMIN_USER_ID: await event.answer(REQUIRE_ACCOUNT_MESSAGE, alert=True); return
     global transfer_in_progress
-    if transfer_in_progress:
-        await event.answer("⏳ يوجد عملية نقل قيد التنفيذ حالياً.", alert=True); return
-        
+    if transfer_in_progress: await event.answer("⏳ يوجد عملية نقل قيد التنفيذ حالياً.", alert=True); return
     user_states[user_id] = "awaiting_from_group"
     await event.edit("ممتاز! أنت مساهم.\n\n**الخطوة 1:** أرسل يوزر المجموعة **المصدر**.")
 
@@ -187,7 +172,6 @@ async def message_handler(event):
     user_id = event.sender_id
     if user_id not in user_states or not event.text or event.text.startswith('/'): return
     if user_id == ADMIN_USER_ID and event.text.lower() in ['/bot_on', '/bot_off']: return
-
     state_data = user_states.get(user_id)
     if isinstance(state_data, dict) and "state" in state_data:
         current_state = state_data["state"]
@@ -196,8 +180,7 @@ async def message_handler(event):
                 state_data['api_id'] = int(event.text)
                 state_data['state'] = "awaiting_api_hash"
                 await event.reply("✅ تم. الآن أرسل **API HASH**.")
-            except ValueError:
-                await event.reply("❌ خطأ: الـ API ID يجب أن يكون رقماً.")
+            except ValueError: await event.reply("❌ خطأ: الـ API ID يجب أن يكون رقماً.")
         elif current_state == "awaiting_api_hash":
             state_data['api_hash'] = event.text
             state_data['state'] = "awaiting_phone"
@@ -213,8 +196,7 @@ async def message_handler(event):
                 state_data['state'] = "awaiting_code"
                 state_data['client'] = temp_client
                 await event.reply(f"✅ تم إرسال الكود. أرسله هنا.")
-            except Exception as e:
-                await event.reply(f"❌ خطأ: `{e}`\n\nابدأ من جديد /start."); del user_states[user_id]
+            except Exception as e: await event.reply(f"❌ خطأ: `{e}`\n\nابدأ من جديد /start."); del user_states[user_id]
         elif current_state == "awaiting_code":
             code = event.text; temp_client = state_data['client']
             try:
@@ -223,10 +205,8 @@ async def message_handler(event):
                 save_account(user_id, state_data['api_id'], state_data['api_hash'], session_str)
                 await event.reply("🎉 **نجاح!** تم إضافة حسابك. يمكنك الآن استخدام البوت أو إضافة المزيد.")
                 del user_states[user_id]
-            except errors.SessionPasswordNeededError:
-                state_data['state'] = "awaiting_password"; await event.reply("🔑 حسابك محمي بكلمة مرور. أرسلها الآن.")
-            except Exception as e:
-                await event.reply(f"❌ خطأ: `{e}`."); del user_states[user_id]
+            except errors.SessionPasswordNeededError: state_data['state'] = "awaiting_password"; await event.reply("🔑 حسابك محمي بكلمة مرور. أرسلها الآن.")
+            except Exception as e: await event.reply(f"❌ خطأ: `{e}`."); del user_states[user_id]
             finally:
                 if temp_client.is_connected(): await temp_client.disconnect(); await event.delete()
         elif current_state == "awaiting_password":
@@ -249,10 +229,8 @@ async def message_handler(event):
         try:
             bot_info = await bot_client.get_me()
             admins = await bot_client.get_participants(to_group, filter=ChannelParticipantsAdmins)
-            if bot_info.id not in [admin.id for admin in admins]:
-                await event.reply("❌ **خطأ:** أنا لست مشرفاً في المجموعة الهدف!"); del user_states[user_id]; return
-        except Exception:
-            await event.reply(f"❌ **خطأ:** لا يمكنني الوصول للمجموعة الهدف."); del user_states[user_id]; return
+            if bot_info.id not in [admin.id for admin in admins]: await event.reply("❌ **خطأ:** أنا لست مشرفاً في المجموعة الهدف!"); del user_states[user_id]; return
+        except Exception: await event.reply(f"❌ **خطأ:** لا يمكنني الوصول للمجموعة الهدف."); del user_states[user_id]; return
         queue = load_json(QUEUE_FILE)
         queue.append({"user_id": user_id, "from_group": from_group, "to_group": to_group})
         save_json(QUEUE_FILE, queue)
@@ -266,26 +244,19 @@ async def account_checker_worker():
         print("🕵️ [Checker] Starting accounts validity check...")
         accounts = load_accounts()
         valid_accounts = []
-        if not accounts:
-            print("🕵️ [Checker] No accounts to check."); continue
+        if not accounts: print("🕵️ [Checker] No accounts to check."); continue
         for account in accounts:
             is_valid = False
             try:
                 status = await check_account_status(account)
-                if status == "✅ فعال":
-                    is_valid = True
+                if status == "✅ فعال": is_valid = True
             except Exception: pass
-            if is_valid:
-                valid_accounts.append(account)
+            if is_valid: valid_accounts.append(account)
             else:
-                try:
-                    await bot_client.send_message(account['contributor_id'], INVALID_ACCOUNT_NOTICE)
+                try: await bot_client.send_message(account['contributor_id'], INVALID_ACCOUNT_NOTICE)
                 except Exception: pass
-        if len(valid_accounts) != len(accounts):
-            save_json(ACCOUNTS_FILE, valid_accounts)
-            print(f"💾 [Checker] Database updated. Valid accounts: {len(valid_accounts)}")
-        else:
-            print("🕵️ [Checker] All accounts are valid.")
+        if len(valid_accounts) != len(accounts): save_json(ACCOUNTS_FILE, valid_accounts); print(f"💾 [Checker] Database updated. Valid accounts: {len(valid_accounts)}")
+        else: print("🕵️ [Checker] All accounts are valid.")
 
 async def background_worker():
     global transfer_in_progress
@@ -296,8 +267,7 @@ async def background_worker():
         transfer_in_progress = True
         task = queue.pop(0); save_json(QUEUE_FILE, queue)
         accounts = load_accounts()
-        if not accounts:
-            await bot_client.send_message(task['user_id'], "لا توجد حسابات متاحة حالياً في المجمع."); continue
+        if not accounts: await bot_client.send_message(task['user_id'], "لا توجد حسابات متاحة حالياً في المجمع."); continue
         status_message = await bot_client.send_message(task['user_id'], f"🚀 بدء النقل من `{task['from_group']}` إلى `{task['to_group']}`...")
         processed_users = load_processed_users()
         total_added, MAX_ADDS_PER_TASK = 0, 200
