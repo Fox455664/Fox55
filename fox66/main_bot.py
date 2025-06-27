@@ -1,3 +1,6 @@
+
+
+
 # 파일명: main_bot.py
 
 import asyncio
@@ -26,6 +29,7 @@ SETTINGS_FILE = "settings.json"
 # --- متغيرات عالمية ---
 transfer_in_progress = False
 user_states = {}
+# --- هذا هو التعديل الرئيسي لحل المشكلة ---
 bot_client = TelegramClient('bot_session', ADMIN_API_ID, ADMIN_API_HASH)
 
 # --- دوال المساعدة ---
@@ -157,9 +161,8 @@ async def new_transfer_callback(event):
     if not settings.get("is_active", True) and user_id != ADMIN_USER_ID:
         await event.answer(BOT_MAINTENANCE_MESSAGE, alert=True); return
     try:
-        user_entity = await bot_client.get_entity(user_id)
-        await bot_client(functions.channels.GetParticipantRequest(channel=TARGET_CHANNEL, participant=user_entity))
-    except (errors.UserNotParticipantError, errors.ChannelPrivateError, ValueError):
+        await bot_client(functions.channels.GetParticipantRequest(channel=TARGET_CHANNEL, participant=user_id))
+    except (errors.UserNotParticipantError, errors.ChannelPrivateError):
         await event.answer(FORCE_SUB_MESSAGE, alert=True); return
     accounts = load_accounts()
     if not any(acc.get('contributor_id') == user_id for acc in accounts) and user_id != ADMIN_USER_ID:
@@ -168,7 +171,7 @@ async def new_transfer_callback(event):
     if transfer_in_progress:
         await event.answer("⏳ يوجد عملية نقل قيد التنفيذ حالياً.", alert=True); return
     user_states[user_id] = "awaiting_from_group"
-    await event.edit("ممتاز! أنت مساهم.\n\n**الخطوة 1:** أرسل يوزر أو ID المجموعة **المصدر**.")
+    await event.edit("ممتاز! أنت مساهم.\n\n**الخطوة 1:** أرسل يوزر المجموعة **المصدر**.")
 
 @bot_client.on(events.CallbackQuery(data='add_account'))
 async def add_account_start(event):
@@ -236,7 +239,7 @@ async def message_handler(event):
         if user_id in user_states: user_states[user_id] = state_data
     elif state_data == "awaiting_from_group":
         user_states[user_id] = {"state": "awaiting_to_group", "from_group": event.text}
-        await event.reply("**الخطوة 2:** أرسل يوزر أو ID مجموعتك **الهدف**.")
+        await event.reply("**الخطوة 2:** أرسل يوزر مجموعتك **الهدف**.")
     elif isinstance(state_data, dict) and state_data.get("state") == "awaiting_to_group":
         from_group, to_group = state_data['from_group'], event.text
         try:
@@ -302,15 +305,7 @@ async def background_worker():
             try:
                 await client.connect()
                 if not await client.is_user_authorized(): continue
-                
-                # تحويل يوزر/رقم المجموعة الهدف إلى رقم صحيح
-                try:
-                    to_group_entity = await client.get_entity(task['to_group'])
-                    to_group_id = to_group_entity.id
-                except (ValueError, TypeError):
-                    await status_message.edit(f"❌ خطأ: لا يمكن العثور على المجموعة الهدف `{task['to_group']}`."); break
-
-                added = await transfer_engine(client, task['from_group'], to_group_id, 40, processed_users, status_message)
+                added = await transfer_engine(client, task['from_group'], task['to_group'], 40, processed_users, status_message)
                 total_added += added
             except Exception: pass
             finally:
@@ -328,7 +323,8 @@ async def run_bot_mode():
     print("✅ مدقق الحسابات يعمل الآن.")
     await bot_client.run_until_disconnected()
 
-async def run_terminal_mode(from_g, to_g, max_a_str):
+async def run_terminal_mode():
+    _, from_g, to_g, max_a_str = sys.argv
     print("--- 🚀 وضع النقل اليدوي للمطور 🚀 ---")
     try: max_adds = int(max_a_str)
     except ValueError: print("❌ الحد الأقصى يجب أن يكون رقمًا."); return
@@ -343,23 +339,18 @@ async def run_terminal_mode(from_g, to_g, max_a_str):
         try:
             await client.connect()
             if not await client.is_user_authorized(): continue
-
-            # تحويل يوزر/رقم المجموعة الهدف إلى رقم صحيح
-            try:
-                to_group_entity = await client.get_entity(to_g)
-                to_group_id = to_group_entity.id
-            except (ValueError, TypeError):
-                print(f"❌ خطأ: لا يمكن العثور على المجموعة الهدف `{to_g}`."); break
-
-            added = await transfer_engine(client, from_g, to_group_id, 40, processed_users, terminal_mode=True)
+            added = await transfer_engine(client, from_g, to_g, 40, processed_users, terminal_mode=True)
             total_added += added
         except Exception as e: print(f"🚨 خطأ في الحساب: {e}")
         finally:
             if client.is_connected(): await client.disconnect()
     print(f"🎉 انتهت العملية. إجمالي الإضافات: {total_added}")
 
-if __name__ == "__main__":
-    if len(sys.argv) == 5 and sys.argv[1] == 'transfer':
-        asyncio.run(run_terminal_mode(sys.argv[2], sys.argv[3], sys.argv[4]))
+async def main():
+    if len(sys.argv) == 4 and sys.argv[1] == 'transfer':
+        await run_terminal_mode()
     else:
-        asyncio.run(run_bot_mode())
+        await run_bot_mode()
+
+if __name__ == "__main__":
+    asyncio.run(main())
