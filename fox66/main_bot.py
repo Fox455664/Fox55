@@ -1,7 +1,4 @@
-
-
-
-# 파일명: main_bot.py
+# 파일명: main_bot.py (نسخة كاملة ومصححة)
 
 import asyncio
 import json
@@ -29,7 +26,6 @@ SETTINGS_FILE = "settings.json"
 # --- متغيرات عالمية ---
 transfer_in_progress = False
 user_states = {}
-# --- هذا هو التعديل الرئيسي لحل المشكلة ---
 bot_client = TelegramClient('bot_session', ADMIN_API_ID, ADMIN_API_HASH)
 
 # --- دوال المساعدة ---
@@ -313,7 +309,7 @@ async def background_worker():
         await status_message.edit(f"🎉 اكتمل النقل! إجمالي الإضافات: **{total_added}**")
         transfer_in_progress = False
 
-# --- المشغل الرئيسي ---
+# --- المشغل الرئيسي (نسخة مصححة) ---
 async def run_bot_mode():
     await bot_client.start(bot_token=BOT_TOKEN)
     print("✅ البوت يعمل الآن.")
@@ -323,8 +319,7 @@ async def run_bot_mode():
     print("✅ مدقق الحسابات يعمل الآن.")
     await bot_client.run_until_disconnected()
 
-async def run_terminal_mode():
-    _, from_g, to_g, max_a_str = sys.argv
+async def run_terminal_mode(from_g, to_g, max_a_str):
     print("--- 🚀 وضع النقل اليدوي للمطور 🚀 ---")
     try: max_adds = int(max_a_str)
     except ValueError: print("❌ الحد الأقصى يجب أن يكون رقمًا."); return
@@ -347,8 +342,10 @@ async def run_terminal_mode():
     print(f"🎉 انتهت العملية. إجمالي الإضافات: {total_added}")
 
 async def main():
-    if len(sys.argv) == 4 and sys.argv[1] == 'transfer':
-        await run_terminal_mode()
+    # الشرط المصحح: يجب أن يكون عدد الوسائط 5
+    if len(sys.argv) == 5 and sys.argv[1] == 'transfer':
+        # تمرير الوسائط بشكل صحيح إلى الدالة
+        await run_terminal_mode(sys.argv[2], sys.argv[3], sys.argv[4])
     else:
         await run_bot_mode()
 
